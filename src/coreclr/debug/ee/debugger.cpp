@@ -5903,8 +5903,7 @@ void Debugger::SendDataBreakpoint(Thread *thread, CONTEXT *context,
     LOG((LF_CORDB, LL_INFO10000, "D::SDB: breakpoint BP:0x%x\n", breakpoint));
 
     _ASSERTE((g_pEEInterface->GetThread() &&
-        !g_pEEInterface->GetThread()->m_fPreemptiveGCDisabled) ||
-        g_fInControlC);
+        !g_pEEInterface->GetThread()->m_fPreemptiveGCDisabled));
 
     _ASSERTE(ThreadHoldsLock());
 
@@ -5951,8 +5950,7 @@ void Debugger::SendBreakpoint(Thread *thread, CONTEXT *context,
     LOG((LF_CORDB, LL_INFO10000, "D::SB: breakpoint BP:0x%x\n", breakpoint));
 
     _ASSERTE((g_pEEInterface->GetThread() &&
-             !g_pEEInterface->GetThread()->m_fPreemptiveGCDisabled) ||
-             g_fInControlC);
+             !g_pEEInterface->GetThread()->m_fPreemptiveGCDisabled));
 
     _ASSERTE(ThreadHoldsLock());
 
@@ -6095,8 +6093,7 @@ void Debugger::SendStep(Thread *thread, CONTEXT *context,
         stepper, reason));
 
     _ASSERTE((g_pEEInterface->GetThread() &&
-             !g_pEEInterface->GetThread()->m_fPreemptiveGCDisabled) ||
-             g_fInControlC);
+             !g_pEEInterface->GetThread()->m_fPreemptiveGCDisabled));
 
     _ASSERTE(ThreadHoldsLock());
 
@@ -6423,8 +6420,7 @@ void Debugger::SyncAllThreads(DebuggerLockHolder *dbgLockHolder)
     Thread *pThread = g_pEEInterface->GetThread();
     (void)pThread; //prevent "unused variable" error from GCC
     _ASSERTE((pThread &&
-             !pThread->m_fPreemptiveGCDisabled) ||
-              g_fInControlC);
+             !pThread->m_fPreemptiveGCDisabled));
 
     _ASSERTE(ThreadHoldsLock());
 
@@ -7573,7 +7569,8 @@ HRESULT Debugger::SendException(Thread *pThread,
     }
     CONTRACTL_END;
 
-    LOG((LF_CORDB, LL_INFO10000, "D::SendException\n"));
+    LOG((LF_CORDB, LL_INFO10000, "D::SendException pThread=0x%p fFirstChance=%s currentIP=0x%p currentSP= 0x%p fContinuable=%s fAttaching=%s fForceNonInterceptable=%s\n",
+        pThread, fFirstChance ? "true" : "false", (void*)currentIP, (void*)currentSP, fContinuable ? "true" : "false", fAttaching ? "true" : "false", fForceNonInterceptable ? "true" : "false"));
 
     if (CORDBUnrecoverableError(this))
     {
@@ -7902,8 +7899,6 @@ LONG Debugger::NotifyOfCHFFilter(EXCEPTION_POINTERS* pExceptionPointers, PVOID p
         MODE_ANY;
     }
     CONTRACTL_END;
-
-    SCAN_IGNORE_TRIGGER; // Scan can't handle conditional contracts.
 
     // @@@
     // Implements DebugInterface
@@ -9007,8 +9002,7 @@ void Debugger::ThreadStarted(Thread* pRuntimeThread)
     //
 
         _ASSERTE((g_pEEInterface->GetThread() &&
-                 !g_pEEInterface->GetThread()->m_fPreemptiveGCDisabled) ||
-                 g_fInControlC);
+                 !g_pEEInterface->GetThread()->m_fPreemptiveGCDisabled));
         _ASSERTE(ThreadHoldsLock());
 
     DebuggerIPCEvent* ipce = m_pRCThread->GetIPCEventSendBuffer();
@@ -9145,7 +9139,7 @@ BOOL Debugger::SuspendComplete(bool isEESuspendedForGC)
     // We can't throw here (we're in the middle of the runtime suspension logic).
     // But things below us throw. So we catch the exception, but then what state are we in?
 
-    if (!isEESuspendedForGC) {_ASSERTE((!g_pEEInterface->GetThread() || !g_pEEInterface->GetThread()->m_fPreemptiveGCDisabled) || g_fInControlC); }
+    if (!isEESuspendedForGC) {_ASSERTE((!g_pEEInterface->GetThread() || !g_pEEInterface->GetThread()->m_fPreemptiveGCDisabled)); }
     if (!isEESuspendedForGC) { _ASSERTE(ThisIsHelperThreadWorker()); }
 
     STRESS_LOG0(LF_CORDB, LL_INFO10000, "D::SC: suspension complete\n");
@@ -9982,7 +9976,7 @@ void Debugger::FuncEvalComplete(Thread* pThread, DebuggerEval *pDE)
 
 
     _ASSERTE(pDE->m_completed);
-    _ASSERTE((g_pEEInterface->GetThread() && !g_pEEInterface->GetThread()->m_fPreemptiveGCDisabled) || g_fInControlC);
+    _ASSERTE((g_pEEInterface->GetThread() && !g_pEEInterface->GetThread()->m_fPreemptiveGCDisabled));
     _ASSERTE(ThreadHoldsLock());
 
     //
@@ -15007,9 +15001,11 @@ HRESULT Debugger::FuncEvalSetup(DebuggerIPCE_FuncEvalInfo *pEvalInfo,
     }
 
 #ifdef FEATURE_SPECIAL_USER_MODE_APC
-    if (pThread->m_hasPendingActivation)
+    if (pThread->m_hasPendingActivation && Thread::AreShadowStacksEnabled())
     {
-        _ASSERTE(!"Should never get here with a pending activation. (Debugger::FuncEvalSetup)");
+        // Debugger::FuncEvalSetup will attempt to hijack the thread's context
+        // to set up the function evaluation, but this is not allowed if the thread
+        // has a pending activation via an APC and CET is enabled
         return CORDBG_E_ILLEGAL_IN_NATIVE_CODE;
     }
 #endif
@@ -16785,15 +16781,6 @@ void Debugger::ExternalMethodFixupNextStep(PCODE address)
 {
     DebuggerController::DispatchExternalMethodFixup(address);
 }
-#ifdef FEATURE_SPECIAL_USER_MODE_APC
-void Debugger::SingleStepToExitApcCall(Thread* pThread, CONTEXT *interruptedContext)
-{
-    pThread->SetThreadState(Thread::TS_SSToExitApcCall);
-    g_pEEInterface->SetThreadFilterContext(pThread, interruptedContext);
-    DebuggerController::EnableSingleStep(pThread);
-    g_pEEInterface->SetThreadFilterContext(pThread, NULL);
-}
-#endif //FEATURE_SPECIAL_USER_MODE_APC
 #endif //DACCESS_COMPILE
 
 unsigned FuncEvalFrame::GetFrameAttribs_Impl(void)
