@@ -144,7 +144,11 @@ namespace System.Numerics.Tensors
         /// <inheritdoc cref="IReadOnlyTensor.FlattenedLength" />
         public nint FlattenedLength => _shape.FlattenedLength;
 
-        internal bool IsContiguousAndDense => _shape.IsContiguousAndDense;
+        /// <inheritdoc cref="IReadOnlyTensor.HasAnyDenseDimensions" />
+        public bool HasAnyDenseDimensions => _shape.HasAnyDenseDimensions;
+
+        /// <inheritdoc cref="IReadOnlyTensor.IsDense" />
+        public bool IsDense => _shape.IsDense;
 
         /// <inheritdoc cref="IReadOnlyTensor.IsEmpty" />
         public bool IsEmpty => _shape.IsEmpty;
@@ -222,6 +226,9 @@ namespace System.Numerics.Tensors
             }
         }
 
+        /// <inheritdoc cref="ITensor{TSelf, T}.GetDimensionSpan(int)" />
+        public TensorDimensionSpan<T> GetDimensionSpan(int dimension) => AsTensorSpan().GetDimensionSpan(dimension);
+
         /// <summary>Gets an enumerator for the readonly tensor.</summary>
         public Enumerator GetEnumerator() => new Enumerator(this);
 
@@ -290,6 +297,20 @@ namespace System.Numerics.Tensors
             );
         }
 
+        /// <inheritdoc cref="IReadOnlyTensor{TSelf, T}.ToDenseTensor()" />
+        public Tensor<T> ToDenseTensor()
+        {
+            Tensor<T> result = this;
+
+            if (!IsDense)
+            {
+                result = Tensor.Create<T>(Lengths, IsPinned);
+                CopyTo(result);
+            }
+
+            return result;
+        }
+
         /// <inheritdoc cref="IReadOnlyTensor{TSelf, T}.TryCopyTo(in TensorSpan{T})" />
         public bool TryCopyTo(scoped in TensorSpan<T> destination) => AsReadOnlyTensorSpan().TryCopyTo(destination);
 
@@ -340,7 +361,8 @@ namespace System.Numerics.Tensors
 
         ref readonly T IReadOnlyTensor<Tensor<T>, T>.this[params ReadOnlySpan<NIndex> indexes] => ref this[indexes];
 
-        [EditorBrowsable(EditorBrowsableState.Never)]
+        ReadOnlyTensorDimensionSpan<T> IReadOnlyTensor<Tensor<T>, T>.GetDimensionSpan(int dimension) => AsReadOnlyTensorSpan().GetDimensionSpan(dimension);
+
         ref readonly T IReadOnlyTensor<Tensor<T>, T>.GetPinnableReference() => ref GetPinnableReference();
 
         //
@@ -433,7 +455,7 @@ namespace System.Numerics.Tensors
             // IDisposable
             //
 
-            readonly void IDisposable.Dispose() { }
+            void IDisposable.Dispose() { }
 
             //
             // IEnumerator
